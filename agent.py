@@ -65,19 +65,17 @@ def run_agent(pnr: str, last_name: str, message: str) -> str:            # ✏�
         thinking={"type": "adaptive"}, tools=tools, messages=messages,
     )
 
-    answer = ""
     turns = 1
     while response.stop_reason == "tool_use" and turns < MAX_TOOL_CALLS:
-        messages.append({"role": "assistant", "content": text_of(response)})
+        messages.append({"role": "assistant", "content": response.content})
         messages.append({"role": "user", "content": tool_results(response)})
-        answer = text_of(response)
         response = client.messages.create(
             model=MODEL, max_tokens=4096, system=runtime_preamble() + SYSTEM_PROMPT + TONE_ADDENDUM,
             thinking={"type": "adaptive"}, tools=tools, messages=messages,
         )
         turns += 1
 
-    return answer
+    return text_of(response)
 
 
 def tool_list() -> List[Dict[str, Any]]:                   # ✏️ Build 2, step 2.2
@@ -118,18 +116,25 @@ def build_tools() -> List[Dict[str, Any]]:                 # ✏️ Build 1, ste
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "flight_no": {"type": "string"},
-                    "date": {"type": "string", "description": "MM/DD/YYYY"},
+                    "flight_no": {"type": "string", "description": "Flight number as on the booking, e.g. 'LK415'."},
+                    "date": {"type": "string", "description": "Local departure date in ISO format YYYY-MM-DD, e.g. '2025-05-08'. Not MM/DD/YYYY."},
                 },
                 "required": ["flight_no", "date"],
             },
         },
         {
             "name": "search_alternatives",
-            "description": "search",
+            "description": (
+                "Find the rebooking options for the customer's disrupted segment (cancelled, "
+                "delayed or missed connection): same route and cabin, enough seats for the "
+                "party, with flight numbers, times, delay, seats left and fare difference, "
+                "each with an option_id. Use it after the disruption is confirmed with "
+                "get_flight_status, when the customer needs a new flight. Read-only: it does "
+                "not hold or book anything. Pass an option_id to hold_seat to reserve one."
+            ),
             "input_schema": {
                 "type": "object",
-                "properties": {"pnr": {"type": "string"}},
+                "properties": {"pnr": {"type": "string", "description": "The booking's PNR (confirmation code), e.g. 'K7PQ2M'."}},
                 "required": ["pnr"],
             },
         },
