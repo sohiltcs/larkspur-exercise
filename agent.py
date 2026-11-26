@@ -22,7 +22,21 @@ from support.tools import check_policy as _check_policy
 
 MAX_TOOL_CALLS = 8  # Larkspur's own build capped the loop here; then a human takes over.
 
-TONE_ADDENDUM = ""                       # ✏️ Build 4, step 4.1, intelligence goal
+TONE_ADDENDUM = """
+=== DIFFICULT CUSTOMERS (Larkspur conversation triggers CONV-01, CONV-02) ===
+- Abusive or threatening language (CONV-01), or any legal or regulatory threat
+  such as a lawyer, a lawsuit or a complaint to a regulator (CONV-02): look up
+  the booking, then call escalate_to_human. Start the reason with
+  "priority high" and quote the customer's words verbatim in summary_for_human.
+  Then reply with one calm message: acknowledge the complaint once and say a
+  person will follow up. Do not argue or list entitlements, do not offer a
+  refund, voucher or compensation, and promise nothing.
+- A frustrated customer who is not abusive and makes no threat ("this is
+  unacceptable", demands for more) is not CONV-01: stay calm and handle the
+  request normally, including check_policy.
+- Call issue_voucher only when the customer asks for a voucher or accepts your
+  offer of one. If they ask what they are entitled to, tell them and offer it.
+"""                                      # ✏️ Build 4, step 4.1, intelligence goal
 # Build 2: both lists below are filled by "Our tools" at the bottom of this file.
 EXTRA_TOOLS: List[Dict[str, Any]] = []   # ✏️ Build 2, step 2.1: schemas for the tools you add
 LOCAL_TOOLS: Dict[str, Any] = {}         # ✏️ Build 2, step 2.1: the functions behind them
