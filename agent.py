@@ -88,7 +88,7 @@ def run_agent(pnr: str, last_name: str, message: str) -> str:            # ✏�
 def tool_list() -> List[Dict[str, Any]]:                   # ✏️ Build 2, step 2.2
     """Given. Exactly what Claude is offered on every turn; run.py --show-tools
     prints this list."""
-    return build_tools() + EXTRA_TOOLS
+    return build_tools() + EXTRA_TOOLS + mcp_client.tools()   # Build 2.2: + the MCP server's tools
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -241,8 +241,8 @@ def build_tools() -> List[Dict[str, Any]]:                 # ✏️ Build 1, ste
 # Our tools (Build 2, step 2.1). Each one reads Larkspur's own files and never
 # invents an answer: no record means it says so. Schemas go into EXTRA_TOOLS,
 # functions into LOCAL_TOOLS, at the very end of this section.
-# Step 2.2 moves next_available_day and fare_rules onto the MCP server: remove
-# their entries from both lists then, so each name has exactly one owner.
+# Step 2.2: next_available_day and fare_rules now come only from the MCP server
+# (support/mcp_server.py, offered in tool_list()), so each name has one owner.
 # ──────────────────────────────────────────────────────────────────────────────
 _NOW = _backend.FIXTURE_CLOCK                    # the data's "now": 2025-05-08 14:10 MDT
 _HORIZON = "%s to %s" % (_backend.DATA_HORIZON_START, _backend.DATA_HORIZON_END)
@@ -343,10 +343,6 @@ def _handbook() -> tuple:
     return tuple(sections)
 
 
-def _section_list() -> str:
-    return ", ".join("%s (%s)" % (s["section"], s["title"]) for s in _handbook())
-
-
 @functools.lru_cache(maxsize=1)
 def _transcripts() -> tuple:
     path = _backend.DATA_DIR / "transcripts_sample.jsonl"
@@ -354,43 +350,7 @@ def _transcripts() -> tuple:
         return tuple(json.loads(line) for line in fh if line.strip())
 
 
-# ── 1. next_available_day 🔵 ─────────────────────────────────────────────────
-@_tool
-def tool_next_available_day(origin, dest, date, cabin="Y"):
-    origin, dest = _airport(origin, "origin"), _airport(dest, "dest")
-    date, cabin = _date(date), str(cabin or "Y").strip().upper()
-    if cabin not in ("Y", "J"):
-        raise _InputError("cabin must be Y (main) or J (first). Got %r." % cabin)
-    found = next_available_day(origin, dest, date, cabin)   # given; answers for one passenger
-    result = {"origin": origin, "dest": dest, "cabin": cabin, "searched_from": date,
-              "earliest_date": found}
-    if found:
-        result["note"] = ("Earliest date with an open seat, searching forward. This answers "
-                          "for ONE passenger; check seats_left before promising it to a party.")
-    else:
-        result["note"] = ("No open seat on or after %s in the schedule this system can see "
-                          "(%s). Do not guess a later date." % (date, _HORIZON))
-    return result
-
-
-# ── 2. fare_rules 🔵 ─────────────────────────────────────────────────────────
-@_tool
-def tool_fare_rules(section):
-    query = re.sub(r"^(section|§)\s*", "", str(section or "").strip().lower()).rstrip(".")
-    if not query:
-        raise _InputError("section is required. Available sections: %s." % _section_list())
-    sections = _handbook()
-    match = (next((s for s in sections if query == s["section"]), None)
-             or next((s for s in sections if query in s["title"].lower()), None))
-    if match is None:  # topic words like "hotel overnight": a section that has ALL of them,
-        words = [w for w in re.findall(r"[a-z]+", query) if len(w) > 2]   # most mentions first
-        scores = [(sum(s["text"].lower().count(w) for w in words), s) for s in sections
-                  if words and all(w in s["text"].lower() for w in words)]
-        match = max(scores, key=lambda c: c[0])[1] if scores else None
-    if match is None:
-        raise _InputError("No section matches %r. Available sections: %s." % (section, _section_list()))
-    return {**match, "source": "Larkspur Handbook v14.3 excerpt (fare_rules_excerpt.md)",
-            "note": "Reference text to quote. What is owed is still decided by check_policy."}
+# (1. next_available_day and 2. fare_rules: served by the MCP server since step 2.2)
 
 
 # ── 3. seats_left ────────────────────────────────────────────────────────────
@@ -606,37 +566,6 @@ def tool_care_entitlements(pnr, wait_minutes_for_alternative=None):
 
 # ── What Claude is told about our tools ──────────────────────────────────────
 _OUR_TOOLS = [
-    (tool_next_available_day, {
-        "name": "next_available_day",
-        "description": (
-            "Answer 'what is the soonest day I can get out?': the earliest DATE with an open "
-            "Larkspur seat between two airports, searching forward from the disrupted travel "
-            "date. Use it when the customer asks about days or how long they are stuck, not "
-            "which specific flight to take (that is search_alternatives). Returns one date as "
-            "YYYY-MM-DD, or says there is no open seat in the schedule. Answers for one "
-            "passenger. Holds and books nothing."
-        ),
-        "input_schema": {"type": "object", "properties": {
-            "origin": {"type": "string", "description": "Departure airport, 3-letter code from the booking, e.g. DEN."},
-            "dest": {"type": "string", "description": "Arrival airport, 3-letter code from the booking, e.g. AUS."},
-            "date": {"type": "string", "description": "The disrupted travel date, YYYY-MM-DD (from lookup_booking). The search looks forward from it."},
-            "cabin": {"type": "string", "enum": ["Y", "J"], "description": "Y for main, J for first: the cabin on the booking. Defaults to Y."},
-        }, "required": ["origin", "dest", "date"]},
-    }),
-    (tool_fare_rules, {
-        "name": "fare_rules",
-        "description": (
-            "Return the exact Larkspur Handbook text (fare rules and Customer Commitment, "
-            "sections 4 to 7) so the reply can quote the rule instead of paraphrasing it. Use "
-            "it when the customer asks WHY something is or is not covered, asks where a rule "
-            "is written, or challenges an answer. Sections: 4 fare families, 5 delays/"
-            "cancellations/diversions, 6 care while you wait (meals, hotels, goodwill), 7 what "
-            "chat will not do. Reference text only: check_policy decides what is owed."
-        ),
-        "input_schema": {"type": "object", "properties": {
-            "section": {"type": "string", "description": "A section number like '6', or words from its title or topic, e.g. 'care while you wait', 'fare families', 'hotel'."},
-        }, "required": ["section"]},
-    }),
     (tool_seats_left, {
         "name": "seats_left",
         "description": (
