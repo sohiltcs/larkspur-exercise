@@ -8,7 +8,7 @@ Number: 13,430 to 24,688 tokens in per contact (average of the 5 ticket types, B
 Safety check: 9 evals, 6 of them hard gates; 6 of 9 pass today and the release is blocked by tone_safety and handoff_quality.
 Next: Stop the agent issuing vouchers nobody asked for, escalate abuse and legal threats, and show both legs of a connection.
 Still broken: On a missed connection (T9WN4C) the agent never sees the inbound Sacramento flight, so it tells two people their Nashville connection may still work when it cannot be made.
-Lever: intelligence
+Lever: cost
 
 ## Priya asked
 
